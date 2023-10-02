@@ -1,0 +1,404 @@
+/**
+ * # Cicada
+ *
+ * Write CI/CD pipelines in TypeScript
+ *
+ * ## Get started with a simple pipeline
+ *
+ * ```ts
+ * import { Job, Pipeline } from "https://deno.land/x/gatekeeper/mod.ts";
+ *
+ * const job = new Job({
+ *   name: "Hello World",
+ *   image: "node:18",
+ *   gates: [{
+ *     run: "echo Hello World",
+ *   }],
+ * });
+ *
+ * export default new Pipeline([job]);
+ * ```
+ *
+ * For more information, see the [Cicada documentation](https://gatekeeper.build/docs).
+ *
+ * @module
+ */
+
+import { resolve } from "https://deno.land/x/gatekeeper/deps.ts";
+import { DockerImages } from "https://deno.land/x/gatekeeper/types/dockerImages.ts";
+
+/**
+ * A file path represented as a string.
+ *
+ * @example
+ * ```ts
+ * const filePath: FilePath = "node_modules"
+ * ```
+ */
+export type FilePath = string;
+
+/**
+ * Options for a cached directory
+ *
+ * @example
+ * ```ts
+ * const cacheDir: CacheDirectoryOptions = {
+ *   path: "node_modules"
+ *   sharing: "private"
+ * }
+ * ```
+ */
+export interface CacheDirectoryOptions {
+  /**
+   * The path to the directory to cache
+   *
+   * @example
+   * ```ts
+   * const cacheDir: CacheDirectoryOptions = {
+   *    path: "node_modules"
+   * }
+   * ```
+   */
+  path: FilePath;
+  /**
+   * Directories default to `shared`
+   *
+   * - `shared` - can be used concurrently by multiple writers
+   * - `private` - creates a new cache if there are multiple writers
+   * - `locked` - pauses the second writer until the first one releases the cache
+   *
+   * @default "shared"
+   */
+  sharing?: "shared" | "private" | "locked";
+}
+
+/**
+ * A directory to cache. This is an array of file/folder paths as strings or of CacheDirectoryOptions which allow for further configuration options
+ * @example
+ * [".node_modules"]`
+ */
+export type CacheDirectories = (FilePath | CacheDirectoryOptions)[];
+
+/**
+ * The options to configure a shell
+ *
+ * @example
+ * ```ts
+ * const shell: ShellOptions = {
+ *  args: ["/bin/bash", "-c"]
+ * }
+ * ```
+ */
+export interface ShellOptions {
+  args: string[];
+}
+
+/**
+ * The shell to use for running a command. This can be a string or a {@link ShellOptions shell options object}.
+ */
+export type Shell = "bash" | "sh" | ShellOptions;
+
+/**
+ * A gate function that can return void or a number and can be synchronous or asynchronous.
+ */
+export type GateFn = () => void | Promise<void> | number | Promise<number>;
+
+/**
+ * The options available in a gate such as the name, the script to run, what directories to cache, and the secrets/env variables needed.
+ */
+export interface GateOptions {
+  /**
+   * The command to run as a string or a {@link GateFn gate function}.
+   *
+   * @example
+   * ```ts
+   * const gate: GateOptions = {
+   *  run: "echo Hello World"
+   * }
+   * ```
+   *
+   * @example
+   * ```ts
+   * const gate: GateOptions = {
+   *  run: () => console.log("Hello World")
+   * }
+   * ```
+   *
+   * @example
+   * ```ts
+   * const gate: GateOptions = {
+   *  run: ["/bin/bash", "-c", "echo Hello World"]
+   * }
+   * ```
+   */
+  run: string | string[] | GateFn;
+
+  /**
+   * The name of the gate.
+   */
+  name?: string;
+
+  /**
+   * Cache directories are mounted as docker volumes. You may use absolute or relative paths. They are mounted for this job only. Use cacheDirectories in a {@link Job Job} for caching at the Job level.
+   */
+  cacheDirectories?: CacheDirectories;
+
+  /**
+   * Disable caching for this gate. This will cause the gate to run every time and may cause subsequent gates to run every time as well.
+   *
+   * @default false
+   */
+  ignoreCache?: boolean;
+
+  /**
+   * Environment variables to set specifically for this gate
+   */
+  env?: Record<string, string>;
+
+  /**
+   * Secrets to expose specifically for this gate. Secrets are accessible in the run function via `secret.value()` or via the `/run/secrets` directory.
+   *
+   * Use secrets rather than env for greater security in job runs and caching.
+   */
+  secrets?: Secret[];
+
+  /**
+   * The directory where the gate should run.
+   *
+   * @default "/app"
+   */
+  workingDirectory?: FilePath;
+
+  /**
+   * The shell to use for running the command. This can be `bash`, `sh`, or {@link ShellOptions}.
+   *
+   * @default "sh"
+   */
+  shell?: Shell;
+}
+
+/**
+ * A gate in the job. A gate can either be an object with a run property,
+ * a gate function (which executed typescript), or a string command (which executes as bash).
+ */
+export type Gate =
+  | GateOptions
+  | GateFn
+  | string;
+
+export interface CommonImageOptions {
+  /**
+   * The base image to use for this job.
+   *
+   * If no domain is specified, the image will be pulled from Docker Hub.
+   *
+   * If no tag is specified, the image will be pulled from the `latest` tag.
+   *
+   * @example "node", "node:18", "node:18-alpine"
+   */
+  image: DockerImages;
+
+  /**
+   * A list of gates to run in the job. Each gate can be a deno/typescript script or a shell script.
+   */
+  gates: Gate[];
+
+  /**
+   * The name of the job. This will be displayed in the logs and can be referenced in another job's "dependsOn" property
+   */
+  name?: string;
+
+  /**
+   * Environment variables to set for this job. These will be available for every gate.
+   */
+  env?: Record<string, string>;
+
+  /**
+   * Cache the contents of directories created inside of a  directories are mounted as docker volumes. They are mounted for all gates in a job. You may use absolute or relative paths.
+   * @example
+   * `[".node_modules"]` will cache the contents of the .node_modules directory on the first run
+   */
+  cacheDirectories?: CacheDirectories;
+
+  /**
+   * The directory where the job should run
+   *
+   * @default "/app"
+   */
+  workingDirectory?: FilePath;
+}
+
+/**
+ * The options for a job, including the name, base image, environment variables, secrets, folder cache, and gates.
+ */
+export interface JobOptions extends CommonImageOptions {
+  /**
+   * A list of jobs that must run before the current job can be executed.
+   */
+  dependsOn?: Job[];
+
+  /**
+   * What should the pipeline do if the job fails.
+   * - `ignore` - ignore the failure and continue the pipeline
+   * - `stop` - stop the pipeline
+   * @default "stop"
+   */
+  onFail?: "ignore" | "stop";
+}
+
+/**
+ *  A job is a lightweight container that executes code. Jobs can be configured with JobOptions. By default, all jobs in a pipeline run in parallel.
+ */
+export class Job {
+  /**
+   * @deprecated Do not use. The _uuid property is unstable and should be considered an internal implementation detail.
+   */
+  readonly _uuid = crypto.randomUUID();
+
+  /**
+   * Creates a new Job instance.
+   * @param options - The options for the job.
+   */
+  constructor(public options: JobOptions) {}
+}
+
+/**
+ * A git branch represented as a string.
+ */
+export type Branch = string;
+
+/**
+ * The options for configuring a pipeline's trigger event.
+ */
+export interface TriggerOptions {
+  /**
+   * Which branches when pushed to should trigger the pipeline.
+   *
+   * Use `'all'` if you'd like for any branch to trigger the pipeline.
+   */
+  push?: Branch[] | "all";
+
+  /**
+   * Which branches when a pull request is opened should trigger the pipeline.
+   *
+   * Use `'all'` if you'd like for any branch to trigger the pipeline.
+   */
+  pullRequest?: Branch[] | "all";
+}
+
+/**
+ * A trigger function that returns a boolean value indicating whether the pipeline should run.
+ */
+// export type TriggerFn = () => boolean | Promise<boolean>;
+
+/**
+ * The trigger events which determines when a pipeline should run.
+ */
+export type Trigger = TriggerOptions; //TriggerFn | TriggerOptions;
+
+/**
+ * The options for a pipeline, including the name and the conditions under which the pipeline should run.
+ */
+export interface PipelineOptions {
+  /**
+   * The name of the pipeline
+   */
+  name?: string;
+  /**
+   * The trigger declares the conditions under which the pipeline should run.
+   */
+  on: Trigger;
+}
+
+/**
+ * A pipeline is an array of jobs. Jobs are executed in parallel by default.
+ */
+export class Pipeline {
+  type = "pipeline" as const;
+
+  /**
+   * Creates a new Pipeline instance.
+   * @param jobs - An array of jobs to include in the pipeline.
+   * @param options - The options for the pipeline.
+   */
+  constructor(public jobs: Job[], public options?: PipelineOptions) {}
+}
+
+/**
+ * A secret is a secure variable, secrets are not cached whereas env variables are.
+ *
+ * To use:
+ *  - CLI: create a .env file or use the `--secret` flag.
+ *  - Dashboard: create your secret key-value in the [Cicada dashboard](https://gatekeeper.build)
+ *
+ * To access to secret in code doing the following:
+ *
+ * @example
+ * ```
+ * var gh_token = new Secret.value("github-secret-key")
+ * ```
+ *
+ * `github-secret-key` is the name of the key for my secret stored in the .env file or in the gatekeeper dashboard
+ */
+export class Secret {
+  static readonly #isInJob = Deno.env.has("CICADA_JOB");
+  static readonly #secretsDir = "/run/secrets";
+  #path = "";
+
+  /**
+   * Creates a new Secret instance
+   *
+   * @param name - The name of the secret.
+   */
+  constructor(public name: string) {
+    if (!Secret.#isInJob) return;
+    this.#path = resolve(Secret.#secretsDir, name);
+  }
+
+  /**
+   * A check that the secret file exists to avoid a cryptic error message.
+   */
+  #assertFileExists = () => {
+    try {
+      Deno.statSync(this.#path);
+    } catch (_) {
+      throw new Error(
+        `Secret \`${this.name}\` is not available in this job, make sure it is specified in the job options.`,
+      );
+    }
+  };
+
+  /**
+   * Get a secret value from the secrets directory asynchronously.
+   *
+   * This is an asynchronous version of {@linkcode valueSync()}.
+   *
+   * @returns The secret value
+   */
+  value(): Promise<string> {
+    if (!Secret.#isInJob) {
+      throw new Error("Secrets are only available during a job.");
+    }
+
+    this.#assertFileExists();
+
+    return Deno.readTextFile(this.#path);
+  }
+
+  /**
+   * Get a secret value from the secrets directory synchronously.
+   *
+   * This is a synchronous version of {@linkcode value()}.
+   *
+   * @returns The secret value
+   */
+  valueSync(): string {
+    if (!Secret.#isInJob) {
+      throw new Error("Secrets are only available during a job.");
+    }
+
+    this.#assertFileExists();
+
+    return Deno.readTextFileSync(this.#path);
+  }
+}

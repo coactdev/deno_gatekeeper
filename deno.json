@@ -1,0 +1,13 @@
+{
+  "$schema": "https://deno.land/x/deno/cli/schemas/config-file.v1.json",
+  "imports": {
+    "https://deno.land/x/gatekeeper/": "./lib/"
+  },
+  "fmt": {
+    "files": {
+      "exclude": [
+        "target"
+      ]
+    }
+  }
+}
