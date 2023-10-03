@@ -341,7 +341,7 @@ export class Pipeline {
  * `github-secret-key` is the name of the key for my secret stored in the .env file or in the gatekeeper dashboard
  */
 export class Secret {
-  static readonly #isInJob = Deno.env.has("CICADA_JOB");
+  static readonly #isInJob = Deno.env.has("GATEKEEPER_JOB");
   static readonly #secretsDir = "/run/secrets";
   #path = "";
 
